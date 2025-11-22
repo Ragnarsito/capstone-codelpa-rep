@@ -14,7 +14,7 @@ class NetworkService {
         private const val TAG = "NetworkService"
         
         // Configurable server settings - inspired by spy repository's approach
-        private const val SERVER_IP = "192.168.5.53"
+        private const val SERVER_IP = "192.168.1.86"   // la IP que te muestra Flask en "Running on"
         private const val SERVER_PORT = "5000"
         private const val ENDPOINT = "scan"
         private const val BASE_URL = "http://$SERVER_IP:$SERVER_PORT"

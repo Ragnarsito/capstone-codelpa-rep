@@ -4,17 +4,25 @@ SERVIDOR REP OPTIMIZADO
 Versión limpia para Scanner App y Desktop App
 """
 
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, Response
 import sqlite3
 from datetime import datetime
 import os
 import hashlib
+import csv
+import io
+
+
 
 app = Flask(__name__)
 
 # Configuración
 DATABASE = 'rep_database.db'
 QR_SECRET_KEY = "REP_CODELPA_2025_SEGURO"  # Misma clave que Desktop App
+
+POINTS_PER_SCAN = 100  # Por ejemplo: 100 puntos por balde escaneado
+SCANS_FOR_REWARD = 7         # escaneos necesarios para beneficio
+DISCOUNT_PERCENT = 15        # porcentaje de descuento
 
 def init_database():
     """Inicializa la base de datos"""
@@ -61,15 +69,26 @@ def index():
         <meta charset="utf-8">
         <style>
             body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-            .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
+            .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
             .header { color: #2E7D32; text-align: center; margin-bottom: 30px; }
             .stats { display: flex; justify-content: space-around; margin: 20px 0; }
-            .stat-box { background: #E8F5E8; padding: 20px; border-radius: 8px; text-align: center; }
+            .stat-box { background: #E8F5E8; padding: 20px; border-radius: 8px; text-align: center; min-width: 200px; }
             .stat-number { font-size: 2em; font-weight: bold; color: #2E7D32; }
-            .recent-scans { margin-top: 30px; }
+            .recent-scans { margin-top: 20px; }
             table { width: 100%; border-collapse: collapse; }
             th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
             th { background: #2E7D32; color: white; }
+            .export-bar { text-align: right; margin: 10px 0 20px 0; }
+            .export-link {
+                background:#1565C0;
+                color:white;
+                padding:8px 14px;
+                border-radius:6px;
+                text-decoration:none;
+                font-size:14px;
+                font-weight:bold;
+            }
+            .export-link:hover { background:#0D47A1; }
         </style>
     </head>
     <body>
@@ -88,6 +107,13 @@ def index():
                     <div class="stat-number">{{ total_users }}</div>
                     <div>Usuarios Activos</div>
                 </div>
+            </div>
+
+            <!-- Barra para exportar CSV -->
+            <div class="export-bar">
+                <a href="/export.csv" class="export-link">
+                    ⬇️ Descargar datos (CSV)
+                </a>
             </div>
             
             <div class="recent-scans">
@@ -116,6 +142,7 @@ def index():
                                 total_scans=total_scans, 
                                 total_users=total_users, 
                                 recent_scans=recent_scans)
+
 
 def validate_qr_security(qr_code):
     """Validar si el QR es auténtico (generado por Desktop App)"""
@@ -250,9 +277,10 @@ def users():
     conn.close()
     return jsonify(users)
 
+
 @app.route('/user/<user_name>')
 def user_detail(user_name):
-    """Detalles de un usuario específico"""
+    """Detalles de un usuario específico + puntos acumulados"""
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
     
@@ -271,15 +299,259 @@ def user_detail(user_name):
     
     conn.close()
     
+    total_scans = len(scans)
+    total_points = total_scans * POINTS_PER_SCAN  # 👈 conversión a puntos
+    
     return jsonify({
         "user_name": user_name,
-        "total_scans": len(scans),
+        "total_scans": total_scans,
+        "points": total_points,
         "scans": scans
     })
+
+@app.route('/mis-puntos')
+def mis_puntos():
+    """Página para que el cliente vea sus puntos"""
+    html = '''
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="utf-8">
+        <title>Mis puntos - Sistema REP</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                background: #f5f5f5;
+                margin: 0;
+                padding: 0;
+            }
+            .container {
+                max-width: 700px;
+                margin: 40px auto;
+                background: white;
+                padding: 30px;
+                border-radius: 12px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            }
+            h1 {
+                text-align: center;
+                color: #2E7D32;
+                margin-bottom: 10px;
+            }
+            .subtitle {
+                text-align: center;
+                color: #555;
+                margin-bottom: 25px;
+            }
+            label {
+                font-weight: bold;
+                display: block;
+                margin-bottom: 8px;
+            }
+            input[type="text"] {
+                width: 100%;
+                padding: 10px 12px;
+                font-size: 14px;
+                border: 1px solid #ccc;
+                border-radius: 6px;
+                box-sizing: border-box;
+            }
+            button {
+                margin-top: 20px;
+                width: 100%;
+                padding: 12px;
+                font-size: 16px;
+                font-weight: bold;
+                border: none;
+                border-radius: 6px;
+                background: #2E7D32;
+                color: white;
+                cursor: pointer;
+            }
+            button:hover {
+                background: #256628;
+            }
+            .result-card {
+                margin-top: 25px;
+                background: #E8F5E8;
+                border-radius: 8px;
+                padding: 18px 20px;
+            }
+            .result-card p {
+                margin: 4px 0;
+            }
+            .result-title {
+                font-weight: bold;
+                margin-bottom: 8px;
+            }
+            .reward-message {
+                margin-top: 10px;
+                font-weight: bold;
+                color: #1B5E20;
+            }
+            .thanks-message {
+                margin-top: 10px;
+                color: #2E7D32;
+            }
+            .small-info {
+                font-size: 13px;
+                color: #666;
+                margin-top: 6px;
+            }
+            .error {
+                margin-top: 10px;
+                color: #c62828;
+                font-weight: bold;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Mis puntos</h1>
+            <p class="subtitle">
+                Ingresa tu identificador (el mismo que se usa como <b>nombre de usuario</b>
+                al registrar el retorno en tienda).
+            </p>
+
+            <form id="pointsForm">
+                <label for="clientName">Nombre de cliente:</label>
+                <input type="text" id="clientName" placeholder="Ejemplo: Martín Demo" />
+                <button type="submit">Ver mis puntos</button>
+            </form>
+
+            <div id="errorBox" class="error" style="display:none;"></div>
+
+            <div id="resultCard" class="result-card" style="display:none;">
+                <p class="result-title">Resumen de tu participación</p>
+                <p><strong>Cliente:</strong> <span id="resClient"></span></p>
+                <p><strong>Escaneos realizados:</strong> <span id="resScans"></span></p>
+                <p><strong>Puntos acumulados:</strong> <span id="resPoints"></span></p>
+                <p><strong>Último escaneo:</strong> <span id="resLastScan"></span></p>
+
+                <p class="reward-message" id="resRewardMsg"></p>
+                <p class="thanks-message">
+                    Gracias por devolver tus baldes, ¡estás ayudando a reciclar!
+                </p>
+                <p class="small-info">
+                    Cada escaneo suma {{ points_per_scan }} puntos. Con {{ scans_for_reward }} escaneos obtienes un {{ discount_percent }}% de descuento.
+                </p>
+            </div>
+        </div>
+
+        <script>
+            const POINTS_PER_SCAN = {{ points_per_scan }};
+            const SCANS_FOR_REWARD = {{ scans_for_reward }};
+            const DISCOUNT_PERCENT = {{ discount_percent }};
+
+            async function fetchUserData(name) {
+                const response = await fetch('/user/' + encodeURIComponent(name));
+                if (!response.ok) {
+                    throw new Error('Error al consultar el servidor');
+                }
+                return await response.json();
+            }
+
+            function buildRewardMessage(totalScans) {
+                if (totalScans === 0) {
+                    return `Aún no tienes escaneos registrados. Con ${SCANS_FOR_REWARD} escaneos obtienes un ${DISCOUNT_PERCENT}% de descuento.`;
+                }
+                if (totalScans < SCANS_FOR_REWARD) {
+                    const remaining = SCANS_FOR_REWARD - totalScans;
+                    const palabra = remaining === 1 ? 'escaneo' : 'escaneos';
+                    return `Te faltan ${remaining} ${palabra} para obtener un ${DISCOUNT_PERCENT}% de descuento.`;
+                }
+                return `🎉 ¡Felicitaciones! Ya alcanzaste el objetivo de ${SCANS_FOR_REWARD} escaneos. Puedes acceder a un ${DISCOUNT_PERCENT}% de descuento.`;
+            }
+
+            document.getElementById('pointsForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const nameInput = document.getElementById('clientName');
+                const errorBox = document.getElementById('errorBox');
+                const resultCard = document.getElementById('resultCard');
+
+                const clientName = nameInput.value.trim();
+                if (!clientName) {
+                    errorBox.textContent = 'Por favor ingresa un nombre de cliente.';
+                    errorBox.style.display = 'block';
+                    resultCard.style.display = 'none';
+                    return;
+                }
+
+                errorBox.style.display = 'none';
+
+                try {
+                    const data = await fetchUserData(clientName);
+
+                    const totalScans = data.total_scans || 0;
+                    const points = totalScans * POINTS_PER_SCAN;
+                    let lastScan = 'Sin escaneos registrados todavía';
+
+                    if (data.scans && data.scans.length > 0) {
+                        lastScan = data.scans[0].timestamp;
+                    }
+
+                    document.getElementById('resClient').textContent = clientName;
+                    document.getElementById('resScans').textContent = totalScans;
+                    document.getElementById('resPoints').textContent = points;
+                    document.getElementById('resLastScan').textContent = lastScan;
+                    document.getElementById('resRewardMsg').textContent = buildRewardMessage(totalScans);
+
+                    resultCard.style.display = 'block';
+                } catch (err) {
+                    console.error(err);
+                    errorBox.textContent = 'No se pudo obtener la información. Inténtalo nuevamente.';
+                    errorBox.style.display = 'block';
+                    resultCard.style.display = 'none';
+                }
+            });
+        </script>
+    </body>
+    </html>
+    '''
+
+    return render_template_string(
+        html,
+        points_per_scan=POINTS_PER_SCAN,
+        scans_for_reward=SCANS_FOR_REWARD,
+        discount_percent=DISCOUNT_PERCENT
+    )
+
+
+@app.route('/export.csv')
+def export_csv():
+    """Descargar todos los escaneos en formato CSV"""
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT id, qr_code, user_name, timestamp, ip_address
+        FROM qr_scans
+        ORDER BY timestamp DESC
+    ''')
+    rows = cursor.fetchall()
+    conn.close()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # encabezados
+    writer.writerow(['id', 'qr_code', 'user_name', 'timestamp', 'ip_address'])
+    # datos
+    writer.writerows(rows)
+
+    csv_data = output.getvalue()
+
+    return Response(
+        csv_data,
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=rep_scans.csv'}
+    )
+
+
 
 if __name__ == '__main__':
     print("🚀 Iniciando Servidor REP...")
     init_database()
     print("✅ Base de datos inicializada")
-    print("🌐 Servidor disponible en: http://192.168.5.53:5000")
+    print("🌐 Servidor disponible en puerto 5000 (ej: http://localhost:5000)")
     app.run(host='0.0.0.0', port=5000, debug=True)
