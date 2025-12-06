@@ -21,8 +21,8 @@ DATABASE = 'rep_database.db'
 QR_SECRET_KEY = "REP_CODELPA_2025_SEGURO"  # Misma clave que Desktop App
 
 POINTS_PER_SCAN = 100  # Por ejemplo: 100 puntos por balde escaneado
-SCANS_FOR_REWARD = 7         # escaneos necesarios para beneficio
-DISCOUNT_PERCENT = 15        # porcentaje de descuento
+SCANS_FOR_REWARD = 15         # escaneos necesarios para beneficio
+DISCOUNT_PERCENT = 4        # porcentaje de descuento
 
 def init_database():
     """Inicializa la base de datos"""
